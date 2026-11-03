@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vectorless RAG</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#EEF1F4; --panel:#FFFFFF; --ink:#16212B; --muted:#586775; --line:#D3DAE1;
+  --accent:#1D5C8D; --accent-ink:#FFFFFF; --mark:#FFE27A; --mark-ink:#3B2F00; --bad:#A4262C; --ok:#20704A;
+  --ui:"Public Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --read:"Literata",Georgia,"Times New Roman",serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font:15px/1.5 var(--ui);color:var(--ink);background:var(--paper);display:grid;grid-template-columns:320px 1fr}
+button,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+aside{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+aside h1{font-size:1.05rem;margin:0;padding:18px 18px 4px;font-weight:600}
+aside .sub{margin:0;padding:0 18px 14px;color:var(--muted);font-size:.85rem}
+.drop{margin:0 18px 14px;padding:16px;border:1.5px dashed var(--line);border-radius:8px;text-align:center;color:var(--muted);cursor:pointer;font-size:.9rem}
+.drop.over,.drop:hover{border-color:var(--accent);color:var(--accent)}
+.drop input{display:none}
+#docs{list-style:none;margin:0;padding:0 10px 10px;overflow:auto;flex:1}
+.doc{padding:10px;border-radius:8px;display:grid;grid-template-columns:auto 1fr;gap:2px 10px}
+.doc:hover{background:var(--paper)}
+.doc input{margin-top:3px;accent-color:var(--accent)}
+.doc .name{font-weight:500;word-break:break-word}
+.doc .meta{grid-column:2;font-size:.82rem;color:var(--muted)}
+.doc .meta.failed{color:var(--bad)}
+.doc .actions{grid-column:2;display:flex;gap:12px;margin-top:2px}
+.link{background:none;border:0;padding:0;color:var(--accent);cursor:pointer;font-size:.82rem;text-decoration:underline}
+.link.danger{color:var(--bad)}
+.bar{grid-column:2;height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:4px}
+.bar i{display:block;height:100%;background:var(--accent);transition:width .4s}
+.empty-docs{padding:10px 18px;color:var(--muted);font-size:.9rem}
+
+main{display:flex;flex-direction:column;min-height:0;min-width:0}
+#feed{flex:1;overflow:auto;padding:28px 20px}
+.wrap{max-width:760px;margin:0 auto}
+.intro{margin-top:12vh}
+.intro h2{font:600 1.7rem/1.25 var(--read);margin:0 0 8px}
+.intro p{color:var(--muted);margin:0;max-width:52ch}
+.msg{margin:0 0 26px}
+.user{display:flex;justify-content:flex-end}
+.user div{background:var(--accent);color:var(--accent-ink);padding:9px 14px;border-radius:12px 12px 2px 12px;max-width:85%;white-space:pre-wrap}
+.status{color:var(--muted);font-size:.85rem;margin-bottom:6px}
+.answer{font:400 1.02rem/1.7 var(--read)}
+.answer p{margin:0 0 .8em}
+.answer ul,.answer ol{margin:0 0 .8em;padding-left:1.3em}
+.answer h4{margin:1em 0 .3em;font-size:1rem}
+.answer code{font-size:.9em;background:var(--panel);padding:1px 4px;border-radius:3px}
+.chip{display:inline-block;background:var(--mark);color:var(--mark-ink);font:500 .76rem/1.5 var(--ui);padding:0 6px;border-radius:3px;margin:0 1px;vertical-align:baseline;white-space:nowrap}
+.err{color:var(--bad);font-size:.92rem}
+details.how{margin-top:10px;font-size:.88rem;color:var(--muted)}
+details.how summary{cursor:pointer}
+details.how p{margin:8px 0}
+details.how ul{margin:4px 0 0;padding-left:1.2em}
+
+form{border-top:1px solid var(--line);background:var(--panel);padding:12px 20px}
+form .wrap{display:flex;gap:10px;align-items:flex-end}
+textarea{flex:1;resize:none;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--paper);max-height:160px}
+.send{background:var(--accent);color:var(--accent-ink);border:0;border-radius:8px;padding:10px 18px;font-weight:500;cursor:pointer}
+.send:disabled{opacity:.5;cursor:default}
+.hint{max-width:760px;margin:6px auto 0;font-size:.8rem;color:var(--muted)}
+
+dialog{border:1px solid var(--line);border-radius:10px;padding:0;width:min(640px,92vw);max-height:80vh;color:var(--ink)}
+dialog::backdrop{background:rgba(22,33,43,.45)}
+dialog header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line);font-weight:600}
+dialog .body{padding:12px 18px 18px;overflow:auto;max-height:calc(80vh - 60px)}
+.tree,.tree ul{list-style:none;margin:0;padding-left:16px;border-left:1px solid var(--line)}
+.tree{border:0;padding:0}
+.tree li{margin:6px 0}
+.tree .pg{color:var(--muted);font-size:.82rem;margin-left:6px}
+.tree .sm{display:block;color:var(--muted);font-size:.84rem}
+
+@media (max-width:800px){
+  body{grid-template-columns:1fr;grid-template-rows:auto 1fr;height:auto;min-height:100%}
+  aside{border-right:0;border-bottom:1px solid var(--line);max-height:42vh}
+  .intro{margin-top:4vh}
+}
+@media (prefers-reduced-motion:reduce){.bar i{transition:none}}
+</style>
+</head>
+<body>
+<aside>
+  <h1>Vectorless RAG</h1>
+  <p class="sub">Ask questions across your PDFs. Answers cite the page.</p>
+  <label class="drop" id="drop">
+    Drop PDFs here or click to upload
+    <input type="file" id="file" accept="application/pdf" multiple>
+  </label>
+  <ul id="docs"></ul>
+</aside>
+
+<main>
+  <div id="feed"><div class="wrap" id="thread">
+    <div class="intro" id="intro">
+      <h2>Upload a PDF, then ask about it.</h2>
+      <p>Each document is turned into an outline of sections. Questions are answered by reading the relevant sections, with page citations.</p>
+    </div>
+  </div></div>
+  <form id="form">
+    <div class="wrap">
+      <textarea id="q" rows="1" placeholder="Ask a question about the selected documents" aria-label="Question"></textarea>
+      <button class="send" id="send" type="submit">Ask</button>
+    </div>
+    <div class="hint">Enter to send, Shift+Enter for a new line. Only checked documents are searched.</div>
+  </form>
+</main>
+
+<dialog id="outline"><header><span id="outlineTitle">Outline</span><button class="link" id="closeOutline" type="button">Close</button></header><div class="body" id="outlineBody"></div></dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const state = { docs: [], selected: new Set(), history: [], busy: false, poll: null };
+const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- documents ---------- */
+async function loadDocs() {
+  try {
+    const r = await fetch('/api/documents');
+    state.docs = await r.json();
+  } catch { return; }
+  for (const d of state.docs) {
+    if (d.status === 'ready' && !state.seen?.has(d.id)) { (state.seen ||= new Set()).add(d.id); state.selected.add(d.id); }
+  }
+  state.selected = new Set([...state.selected].filter(id => state.docs.some(d => d.id === id && d.status === 'ready')));
+  renderDocs();
+  const indexing = state.docs.some(d => d.status === 'indexing');
+  if (indexing && !state.poll) state.poll = setInterval(loadDocs, 1500);
+  if (!indexing && state.poll) { clearInterval(state.poll); state.poll = null; }
+}
+
+function renderDocs() {
+  const ul = $('#docs');
+  if (!state.docs.length) { ul.innerHTML = '<li class="empty-docs">No documents yet.</li>'; return; }
+  ul.innerHTML = state.docs.map(d => {
+    const ready = d.status === 'ready';
+    const meta = ready ? `${d.num_pages} pages` : d.status === 'failed' ? esc(d.error || 'Indexing failed') : esc(d.stage || 'Indexing');
+    return `<li class="doc">
+      <input type="checkbox" data-id="${d.id}" ${state.selected.has(d.id) ? 'checked' : ''} ${ready ? '' : 'disabled'} aria-label="Search ${esc(d.filename)}">
+      <span class="name">${esc(d.filename)}</span>
+      <span class="meta ${d.status === 'failed' ? 'failed' : ''}">${meta}</span>
+      ${d.status === 'indexing' ? `<div class="bar"><i style="width:${d.progress}%"></i></div>` : ''}
+      <div class="actions">
+        ${ready ? `<button class="link" data-outline="${d.id}">View outline</button>` : ''}
+        <button class="link danger" data-del="${d.id}">Delete</button>
+      </div></li>`;
+  }).join('');
+}
+
+$('#docs').addEventListener('change', e => {
+  const id = e.target.dataset.id; if (!id) return;
+  e.target.checked ? state.selected.add(id) : state.selected.delete(id);
+});
+$('#docs').addEventListener('click', async e => {
+  const del = e.target.dataset.del, out = e.target.dataset.outline;
+  if (del && confirm('Delete this document and its index?')) {
+    await fetch('/api/documents/' + del, { method: 'DELETE' }); state.selected.delete(del); loadDocs();
+  }
+  if (out) showOutline(out);
+});
+
+async function upload(files) {
+  for (const f of files) {
+    const fd = new FormData(); fd.append('file', f);
+    const r = await fetch('/api/documents', { method: 'POST', body: fd });
+    if (!r.ok) alert(`${f.name}: ${(await r.json()).detail || 'Upload failed'}`);
+  }
+  loadDocs();
+}
+$('#file').addEventListener('change', e => { upload([...e.target.files]); e.target.value = ''; });
+const drop = $('#drop');
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => upload([...e.dataTransfer.files].filter(f => f.name.toLowerCase().endsWith('.pdf'))));
+
+async function showOutline(id) {
+  const d = state.docs.find(x => x.id === id);
+  const tree = await (await fetch(`/api/documents/${id}/tree`)).json();
+  const walk = ns => '<ul class="tree">' + ns.map(n =>
+    `<li><strong>${esc(n.title)}</strong><span class="pg">pp. ${n.start}-${n.end}</span><span class="sm">${esc(n.summary)}</span>${n.children.length ? walk(n.children) : ''}</li>`).join('') + '</ul>';
+  $('#outlineTitle').textContent = d ? d.filename : 'Outline';
+  $('#outlineBody').innerHTML = walk(tree);
+  $('#outline').showModal();
+}
+$('#closeOutline').onclick = () => $('#outline').close();
+
+/* ---------- rendering answers ---------- */
+function inline(s) {
+  return esc(s)
+    .replace(/\[([^\[\]]{1,140}?),\s*(p{1,2}\.\s*[\d][\d\s,pP.\-–]*)\]/g, (_, name, pg) => `<span class="chip">${name}, ${pg.trim()}</span>`)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+function markdown(text) {
+  const out = []; let list = null;
+  const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  for (const line of text.split('\n')) {
+    let m;
+    if ((m = line.match(/^\s*[-*]\s+(.*)/))) { if (list !== 'ul') { close(); out.push('<ul>'); list = 'ul'; } out.push(`<li>${inline(m[1])}</li>`); }
+    else if ((m = line.match(/^\s*\d+\.\s+(.*)/))) { if (list !== 'ol') { close(); out.push('<ol>'); list = 'ol'; } out.push(`<li>${inline(m[1])}</li>`); }
+    else if ((m = line.match(/^#{1,4}\s+(.*)/))) { close(); out.push(`<h4>${inline(m[1])}</h4>`); }
+    else if (line.trim()) { close(); out.push(`<p>${inline(line)}</p>`); }
+    else close();
+  }
+  close(); return out.join('');
+}
+
+/* ---------- chat ---------- */
+function addUser(text) {
+  $('#intro')?.remove();
+  const el = document.createElement('div'); el.className = 'msg user';
+  el.innerHTML = `<div>${esc(text)}</div>`; $('#thread').append(el);
+}
+function addAssistant() {
+  const el = document.createElement('div'); el.className = 'msg';
+  el.innerHTML = '<div class="status"></div><div class="answer"></div><div class="extra"></div>';
+  $('#thread').append(el); return el;
+}
+const scroll = () => { const f = $('#feed'); f.scrollTop = f.scrollHeight; };
+
+async function ask(question) {
+  state.busy = true; $('#send').disabled = true;
+  addUser(question);
+  const el = addAssistant(), status = el.querySelector('.status'), ans = el.querySelector('.answer'), extra = el.querySelector('.extra');
+  let text = '';
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, document_ids: [...state.selected], history: state.history.slice(-6) })
+    });
+    if (!res.ok || !res.body) throw new Error('The server returned an error.');
+    const reader = res.body.getReader(), dec = new TextDecoder(); let buf = '';
+    while (true) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const raw = buf.slice(0, i); buf = buf.slice(i + 2);
+        const ev = (raw.match(/^event: (.*)$/m) || [])[1], data = JSON.parse((raw.match(/^data: (.*)$/m) || [, '{}'])[1]);
+        if (ev === 'status') status.textContent = data.message + '…';
+        else if (ev === 'retrieval') {
+          extra.innerHTML = `<details class="how"><summary>How this was found (${data.nodes.length} section${data.nodes.length === 1 ? '' : 's'} read)</summary>
+            <p>${esc(data.reasoning)}</p><ul>${data.nodes.map(n => `<li>${esc(n.doc)}: ${esc(n.title)}, pp. ${n.start}-${n.end}</li>`).join('')}</ul></details>`;
+        }
+        else if (ev === 'token') { text += data.text; ans.innerHTML = markdown(text); }
+        else if (ev === 'error') { ans.innerHTML += `<p class="err">${esc(data.message)}</p>`; }
+        scroll();
+      }
+    }
+    status.remove();
+    if (text) state.history.push({ role: 'user', content: question }, { role: 'assistant', content: text });
+  } catch (e) {
+    status.remove(); ans.innerHTML = `<p class="err">${esc(e.message)}</p>`;
+  } finally { state.busy = false; $('#send').disabled = false; $('#q').focus(); }
+}
+
+$('#form').addEventListener('submit', e => {
+  e.preventDefault();
+  const q = $('#q').value.trim(); if (!q || state.busy) return;
+  $('#q').value = ''; $('#q').style.height = 'auto'; ask(q);
+});
+$('#q').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#form').requestSubmit(); } });
+$('#q').addEventListener('input', e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; });
+
+loadDocs();
+</script>
+</body>
+</html>
