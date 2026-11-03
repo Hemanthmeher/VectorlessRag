@@ -1,52 +1,65 @@
-# Vectorless RAG
+# Vectorless RAG Engine
+*Document Q&A without embeddings or a vector database.*
 
-Document Q&A without embeddings or a vector database. Each PDF becomes a hierarchical outline
-(chapter, section, subsection, with page ranges and summaries). An LLM reads the outline like a
-table of contents, picks the sections that hold the answer, and the answer is written from the
-exact text of those pages, with page citations.
+## Overview
+Traditional RAG relies on vector databases and chunk embeddings, which often break document context and introduce retrieval noise. **Vectorless RAG** takes a structural approach:
+1. **Hierarchical Indexing:** Each uploaded PDF is parsed into a logical tree outline (Chapters, Sections, Subsections) with exact page ranges.
+2. **Reasoning Retrieval:** Instead of vector similarity search, an LLM acts as a navigator, reading the document tree outline like a Table of Contents to select the precise nodes containing the answer.
+3. **Exact Slicing:** Text is sliced directly from the stored PDF pages based on page ranges—the LLM never rewrites or copies the source text, eliminating hallucinations and truncation.
+4. **Grounded Answers:** Responses are streamed in real-time via Server-Sent Events (SSE) and include explicit page citations (e.g., `[file.pdf, p.12]`).
 
-## Run
+---
 
+## Architecture & How It Works
+
+[ Upload PDF ] ──> [ FastAPI Backend ] ──> [ PDF Parser (PyMuPDF) ]
+│
+[ Hierarchical Tree ]
+│
+[ User Query ] ──> [ 2-Stage Reasoning Router ] ──> [ Exact Page Slicing ] ──> [ Grounded Streaming Answer ]
+1. **Indexing Pipeline:** 
+   - Extracts page-wise text using PyMuPDF.
+   - Detects document structure via bookmarks or font-size heuristics (with a 3-page window fallback).
+   - Generates concise node summaries in batches using Groq LLMs to save tokens.
+   - Caches indexes using SHA-256 file hashes for instant re-uploads.
+2. **Retrieval Pipeline:**
+   - **Stage 1 (Document Selection):** Selects relevant documents from metadata summaries (for multi-document queries).
+   - **Stage 2 (Node Selection):** Feeds the document tree outline to the LLM, which returns structured JSON node IDs. Validates IDs strictly and filters out redundant parent/child nodes.
+3. **Answering & Streaming:**
+   - Assembles text within a strict character budget.
+   - Streams responses over **SSE (Server-Sent Events)** with status updates, reasoning traces, and citation chips.
+
+---
+
+## Tech Stack
+- **Backend:** FastAPI, Python, SQLite (metadata & state storage)
+- **PDF Processing:** PyMuPDF (`fitz`)
+- **LLM & Orchestration:** Groq API (`llama-3.1-8b-instant`, `openai/gpt-oss-120b`), custom JSON parsing & retry backoff engine
+- **Frontend:** Vanilla HTML5, CSS (Modern Glassmorphism / Dark Minimalist styling), JavaScript (SSE streaming client)
+- **Deployment:** Docker & Docker Compose
+
+---
+
+## Quick Start
+
+### 1. Local Setup
 ```bash
-python -m venv .venv && source .venv/bin/activate
+# Clone the repository
+git clone [https://github.com/Hemanthmeher/VectorlessRag.git](https://github.com/Hemanthmeher/VectorlessRag.git)
+cd VectorlessRag
+
+# Create and activate virtual environment
+python -m venv .venv
+# On Windows PowerShell:
+.venv\Scripts\Activate.ps1
+
+# Install dependencies
 pip install -r requirements.txt
-cp .env.example .env        # add your GROQ_API_KEY (free at console.groq.com)
+
+# Configure environment variables
+cp .env.example .env
+# Open .env and add your GROQ_API_KEY (free at console.groq.com)
+
+# Run the FastAPI server
 uvicorn app.main:app --reload
-```
-Open http://localhost:8000. Docker: `docker build -t vectorless-rag . && docker run -p 8000:8000 --env-file .env -v rag-data:/srv/data vectorless-rag`
-
-## How it works
-
-1. **Indexing** (background job): PyMuPDF extracts text per page. Structure comes from PDF bookmarks,
-   else font-size heading detection, else fixed page windows. Long leaves are split into 3-page windows.
-   A small model writes a one-line summary per leaf (batched, 4 per call). Node text is sliced
-   from the stored pages, never copied by the LLM, so it cannot be truncated or hallucinated.
-2. **Cache**: indexes are keyed by the file's SHA-256; re-uploading the same PDF is instant.
-3. **Retrieval**: (a) with 3+ documents, pick relevant documents from their summaries; (b) show the model
-   the outline of those documents and get back JSON node IDs. IDs are matched exactly and validated,
-   parents are dropped when a child is chosen, and text is capped by a character budget.
-4. **Answer**: streamed over SSE, grounded in the selected pages, cited as `[file.pdf, p.12]`.
-   Follow-up questions are rewritten into standalone questions before retrieval.
-
-## API
-
-| Method | Path | Purpose |
-|---|---|---|
-| POST | /api/documents | upload PDF (returns immediately, indexes in background) |
-| GET | /api/documents | list with status and progress |
-| GET | /api/documents/{id}/tree | outline tree |
-| DELETE | /api/documents/{id} | remove document and index |
-| POST | /api/chat | SSE stream: status, retrieval, token, done, error |
-
-## Limits and next steps
-
-- Scanned PDFs (no text layer) are rejected; add OCR (e.g. Tesseract) to support them.
-- Groq free-tier rate limits vary by model and change over time. Calls retry with backoff; if you hit
-  429s often, lower `CONTEXT_CHAR_BUDGET` or switch `SMART_MODEL` in `.env`.
-- Auth, per-user document isolation, and a task queue (Celery/RQ) are the next steps for multi-user deployment.
-
-## Resume bullets
-
-- Built a vectorless, reasoning-based RAG system (FastAPI, Groq LLMs, PyMuPDF) that indexes PDFs into hierarchical page-range trees and retrieves via LLM tree navigation instead of embeddings.
-- Designed a multi-document, two-stage retrieval pipeline (document selection, then section selection) with structured JSON output and validated node IDs, with page-level citations in answers.
-- Implemented background indexing with progress polling, SHA-256 index caching, rate-limit-aware retries with exponential backoff, and SSE token streaming to a single-page frontend.
+Open http://localhost:8000 in your browser.2. Docker SetupBashdocker build -t vectorless-rag .
